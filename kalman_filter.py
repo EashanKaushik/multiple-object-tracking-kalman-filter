@@ -1,52 +1,41 @@
 import numpy as np
 
-ACCELERATION = 0
-
 
 class KalmanFilter:
-    def __init__(self, x, y):
-        # TODO: Initial x, xv, y, yv
+    def __init__(self, initial_pos, initial_velocity, acceleration):
+        self.X_t = np.array([initial_pos, initial_velocity])
+        self.P_t = np.eye(2) ** 2
+        self.H_t = np.zeros((1, 2))
+        self.H_t[0, 0] = 1
 
-        self.P_t = np.identity(4)
-        self.X_hat = np.array([[x], [y], [0], [0]])
-        self.U_t = ACCELERATION
-        self.B_t = np.array([[0], [0], [0], [0]])
-        self.Q_t = np.identity(4)
-        self.H_t = np.array([[1, 0, 0, 0], [0, 1, 0, 0]])
-        self.R_t = (np.identity(2) * 0.1) ** 5
+        self.acceleration = acceleration
 
-    def predict(self, delta_t=1/15):
+    def predict(self, dt):
+        # x = F x
+        # P = F P Ft + G Gt a
+        F = np.array([[1, dt], [0, 1]])
+        G = np.array([0.5 * dt**2, dt]).reshape((2, 1))
 
-        F_t = np.array([[1, 0, delta_t, 0], [0, 1, 0, delta_t],
-                        [0, 0, 1, 0], [0, 0, 0, 1]])
+        self.X_t = F.dot(self.X_t)
+        self.P_t = F.dot(self.P_t).dot(F.T) + G.dot(G.T) * self.acceleration
 
-        self.X_hat = F_t.dot(self.X_hat) + \
-            (self.B_t.dot(self.U_t).reshape(self.B_t.shape[0], -1))
+    def update(self, meas_value, meas_variance):
 
-        self.P_t = np.diag(
-            np.diag(F_t.dot(self.P_t).dot(F_t.transpose()))) + self.Q_t
+        Z_t = np.array([meas_value])
+        R_t = np.array([meas_variance])
 
-    def update(self, Z_t):
-        # Z_t shape (2, 1)
+        y_t = Z_t - self.H_t.dot(self.X_t)
+        S_t = self.H_t.dot(self.P_t).dot(self.H_t.T) + R_t
 
-        K_prime = self.P_t.dot(self.H_t.transpose()).dot(
-            np.linalg.inv(self.H_t.dot(self.P_t).dot(self.H_t.transpose()) + self.R_t))
+        K = self.P_t.dot(self.H_t.T).dot(np.linalg.inv(S_t))
 
-        self.X_hat = self.X_hat + K_prime.dot(Z_t - self.H_t.dot(self.X_hat))
-        self.P_t = self.P_t - K_prime.dot(self.H_t).dot(self.P_t)
+        self.X_t = self.X_t + K.dot(y_t)
+        self.P_t = (np.eye(2) - K.dot(self.H_t)).dot(self.P_t)
 
-    @ property
-    def cov(self) -> np.array:
-        return self.P_t
+    @property
+    def x(self) -> int:
+        return int(self.X_t[0])
 
-    @ property
-    def mean(self) -> np.array:
-        return self.X_hat
-
-    @ property
-    def x(self) -> float:
-        return int(self.X_hat[0][0])
-
-    @ property
-    def y(self) -> float:
-        return int(self.X_hat[1][0])
+    @property
+    def x_float(self) -> float:
+        return self.X_t[0]

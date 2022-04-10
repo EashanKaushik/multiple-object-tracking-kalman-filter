@@ -1,6 +1,8 @@
 import cv2 as cv
 import time
 import numpy as np
+# from kalman_filter import KalmanFilter
+# from kalman_filter_x import KalmanFilter
 from kalman_filter import KalmanFilter
 
 # input class names - MS COCO
@@ -19,6 +21,8 @@ model = cv.dnn_DetectionModel(net)
 # ball.mp4
 model.setInputParams(size=(960, 540), scale=1/255, swapRB=True)
 cap = cv.VideoCapture('input/ball.mp4')
+fourcc = cv.VideoWriter_fourcc(*'mp4v')
+video = cv.VideoWriter('video.avi', fourcc, 10, (960, 540))
 
 # objectTracking_examples_multiObject.avi
 # model.setInputParams(size=(600, 500), scale=1/255, swapRB=True)
@@ -26,12 +30,15 @@ cap = cv.VideoCapture('input/ball.mp4')
 
 # KF = list()
 
+
 starting_time = time.time()
 
 initialize = True
 
 kf = None
 
+meas_variance = list()
+var = list()
 while True:
     ret, frame = cap.read()
 
@@ -53,34 +60,38 @@ while True:
 
             if initialize:
                 initialize = False
-                kf = KalmanFilter(centeroid[0], centeroid[1])
-                kf.predict(dt)
-
-                print(f'Kalman Filter Predictions: x:{kf.x}, y:{kf.y}')
+                # Kalman
+                kf = KalmanFilter(initial_pos=centeroid[0],
+                                  initial_velocity=0, acceleration=2)
+                print(
+                    f'Kalman Filter Predictions: x:{kf.x_float}, y:{centeroid[1]}')
                 print(f'Ground Truth: x:{centeroid[0]}, y:{centeroid[1]}')
 
-                cv.circle(frame, (kf.x, kf.y), 1, (255, 0, 0), 3)
+                cv.circle(frame, (kf.x, centeroid[1]), 1, (255, 0, 0), 3)
 
             else:
+                # Kalman
                 kf.predict(dt)
-
-                print(f'Kalman Filter Predictions: x:{kf.x}, y:{kf.y}')
+                print(
+                    f'Kalman Filter Predictions: x:{kf.x_float}, y:{centeroid[1]}')
                 print(f'Ground Truth: x:{centeroid[0]}, y:{centeroid[1]}')
 
-                cv.circle(frame, (kf.x, kf.y), 1, (255, 0, 0), 3)
+                cv.circle(frame, (kf.x, centeroid[1]), 1, (255, 0, 0), 3)
 
-                kf.update(centeroid)
+                kf.update(centeroid[0],  0.37)
 
             cv.rectangle(frame, box, (0, 0, 255), 4)
     elif kf:
-
+        # Kalman
         kf.predict(dt)
+        print(
+            f'Kalman Filter Predictions: x:{kf.x_float}, y:{centeroid[1]}')
+        print(f'Ground Truth: x:{centeroid[0]}, y:{centeroid[1]}')
 
-        cv.circle(frame, (kf.x, kf.y), 1, (255, 0, 0), 3)
-
-        kf.update(centeroid)
+        cv.circle(frame, (kf.x, centeroid[1]), 1, (255, 0, 0), 3)
 
     cv.imshow('frame', frame)
+    video.write(frame)
 
     key = cv.waitKey(1)
 
@@ -90,3 +101,4 @@ while True:
 cap.release()
 
 cv.destroyAllWindows()
+video.release()
