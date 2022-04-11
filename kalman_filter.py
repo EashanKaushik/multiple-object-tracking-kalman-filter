@@ -3,6 +3,8 @@ import numpy as np
 
 class KalmanFilter:
     def __init__(self, initial_pos, initial_velocity, acceleration):
+        # self._id = id_number
+        self.invisibleCount = 0
         self.X_t = np.array([initial_pos, initial_velocity])
         self.P_t = np.eye(2) ** 2
         self.H_t = np.zeros((1, 2))
@@ -32,6 +34,15 @@ class KalmanFilter:
         self.X_t = self.X_t + K.dot(y_t)
         self.P_t = (np.eye(2) - K.dot(self.H_t)).dot(self.P_t)
 
+    def inc_invisible_count(self):
+        self.invisibleCount += 1
+
+    def default_invisible_count(self):
+        self.invisibleCount = 0
+
+    def check_invisible_count(self):
+        return self.invisibleCount <= 3
+
     @property
     def x(self) -> int:
         return int(self.X_t[0])
@@ -39,3 +50,7 @@ class KalmanFilter:
     @property
     def x_float(self) -> float:
         return self.X_t[0]
+
+    @property
+    def id(self) -> int:
+        return int(self._id)
