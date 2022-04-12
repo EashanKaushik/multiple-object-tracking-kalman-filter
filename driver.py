@@ -1,8 +1,9 @@
+import sys
 import numpy as np
 import cv2 as cv
 import time
-# IOU_THRESHOLD = 0.3  # for 1 ball
-IOU_THRESHOLD = 0.45
+
+IOU_THRESHOLD = 0.3
 
 
 def add_border(box, row, col):
@@ -78,15 +79,52 @@ def check_object(frame, box, objects, next_object_id, total_boxes_detected):
             else:
                 # object was not assigned any id
                 # create new object
-                raise Exception()
 
                 objects[next_object_id] = new_crop_img
 
                 return next_object_id + 1, objects, next_object_id
 
         else:
-            time.sleep(5)
+            # time.sleep(5)
 
             objects[next_object_id] = new_crop_img
 
+            return next_object_id + 1, objects, next_object_id
+
+
+DISTANCE_THRESHOLD = 200
+
+
+def check_object_2(centroid, objects, next_object_id):
+    if len(objects) == 0:
+        # first object
+        objects[next_object_id] = centroid
+
+        return next_object_id + 1, objects, next_object_id
+    else:
+        # object already exist
+
+        minimum_distance = sys.maxsize
+        is_assigned = False
+
+        for object_id, object_centroid in objects.items():
+            dist = np.linalg.norm(centroid - object_centroid)
+            print(f'Dist{dist}')
+            if dist < minimum_distance:
+                minimum_distance = dist
+                assigned_object_id = object_id
+                assigned_distance = dist
+                is_assigned = True
+
+        # print(assigned_distance)
+
+        if is_assigned and assigned_distance < DISTANCE_THRESHOLD:
+            objects[assigned_object_id] = centroid
+
+            return next_object_id, objects, assigned_object_id
+        else:
+            print("***New Object Assigned***")
+            # exit()
+            # time.sleep(10)
+            objects[next_object_id] = centroid
             return next_object_id + 1, objects, next_object_id
