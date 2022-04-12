@@ -1,130 +1,172 @@
 import cv2 as cv
 import time
 import numpy as np
-from driver import check_object, check_object_2
+from driver import check_object
 from kalman_filter import KalmanFilter
 
+# COLORS
 COLORS = [(None, None, None), (255, 0, 0), (255, 165, 0), (0, 255, 255)]
-
 OBJECT = [(None, None, None), (0, 0, 255), (0, 255, 0), (0, 0, 128)]
 
-# input class names - MS COCO
-class_name = []
-with open('yolo/classes.txt', 'r') as f:
-    class_name = [cname.strip() for cname in f.readlines()]
+# YOLO weights and config file
+YOLO_WEIGHTS = 'yolo/yolov4-tiny.weights'
+YOLO_CONF = 'yolo/yolov4-tiny.cfg'
 
 
-# Initialize the model, backend and target
-net = cv.dnn.readNet('yolo/yolov4-tiny.weights', 'yolo/yolov4-tiny.cfg')
-net.setPreferableBackend(cv.dnn.DNN_BACKEND_CUDA)
-net.setPreferableTarget(cv.dnn.DNN_TARGET_CUDA_FP16)
+def set_yolo_model() -> cv:
+    """For setting YOLO model
 
-model = cv.dnn_DetectionModel(net)
+    Returns:
+        cv: Configured YOLO Model
+    """
 
-# ball.mp4
-model.setInputParams(size=(960, 540), scale=1/255, swapRB=True)
-cap = cv.VideoCapture('input/ball.mp4')
-# fourcc = cv.VideoWriter_fourcc(*'mp4v')
-# video = cv.VideoWriter('video.avi', fourcc, 10, (960, 540))
+    # Initialize the model, backend and target
+    net = cv.dnn.readNet(YOLO_WEIGHTS, YOLO_CONF)
+    net.setPreferableBackend(cv.dnn.DNN_BACKEND_CUDA)
+    net.setPreferableTarget(cv.dnn.DNN_TARGET_CUDA_FP16)
 
-# objectTracking_examples_multiObject.avi
-# model.setInputParams(size=(500, 500), scale=1/255, swapRB=True)
-# cap = cv.VideoCapture('input/objectTracking_examples_multiObject.avi')
-# fourcc = cv.VideoWriter_fourcc(*'mp4v')
-# video = cv.VideoWriter('video2.avi', fourcc, 10, (960, 540))
+    model = cv.dnn_DetectionModel(net)
+
+    return model
 
 
-starting_time = time.time()
+def mot(object_conf: dict) -> None:
+    """For Object Detection using YOLO and Object Tracking using Kalman Filter
 
-objects = dict()
-next_object_id = 1
-kf = dict()
-current_object_id = 0
+    Args:
+        object_conf (dict): Video object, Hyperparameters
+    """
 
-while True:
-    ret, frame = cap.read()
+    # get the YOLO Model
+    model = set_yolo_model()
 
-    new_time = time.time()
-    dt = (new_time - starting_time)
-    starting_time = new_time
+    # set_model_params
+    model.setInputParams(
+        size=object_conf['input_size'], scale=1/255, swapRB=True)
 
-    if ret == False:
-        break
+    # input the video
+    cap = cv.VideoCapture(object_conf['input'])
 
-    _, _, boxes = model.detect(frame, 0.4, 0.4)
-    print('\n\nStart of new Frame')
-    object_id_detected = list()
-    for index, box in enumerate(boxes):
+    # save the video
+    fourcc = cv.VideoWriter_fourcc(*'mp4v')
+    video = cv.VideoWriter(
+        object_conf['output'], fourcc, 10, object_conf['output_size'])
 
-        # next_object_id, objects, current_object_id = check_object(
-        #     frame, box, objects, next_object_id, len(boxes))
+    # start time
+    starting_time = time.time()
 
-        centeroid = np.array([box[0] + (box[2] // 2),
-                              box[1] + (box[3]) // 2])
+    # storing objects
+    objects = dict()
+    # next available object
+    next_object_id = 1
+    # kalman filter dict
+    kf = dict()
+    # current object assigned
+    current_object_id = 0
 
-        next_object_id, objects, current_object_id = check_object_2(
-            centeroid, objects, next_object_id)
+    while True:
+        # read the frame
+        ret, frame = cap.read()
 
-        object_id_detected.append(current_object_id)
+        # calculate dt
+        new_time = time.time()
+        dt = (new_time - starting_time)
+        starting_time = new_time
 
-        cv.circle(frame, centeroid, 3, OBJECT[current_object_id], 3)
+        if ret == False:
+            break
 
-        if current_object_id not in kf.keys():
-            # Kalman
-            kf[current_object_id] = KalmanFilter(
-                initial_pos=centeroid[0], initial_velocity=10, acceleration=500)
-            # print(
-            #     f'Kalman Filter Predictions: x:{kf[current_object_id].x_float}, y:{centeroid[1]}')
-            # print(f'Ground Truth: x:{centeroid[0]}, y:{centeroid[1]}')
+        # get bounding box from YOLO
+        _, _, boxes = model.detect(
+            frame, object_conf['Conf_threshold'], object_conf['NMS_threshold'])
 
-            cv.circle(frame, (kf[current_object_id].x,
-                              centeroid[1]), 1, COLORS[current_object_id], 3)
+        object_id_detected = list()
 
-        else:
-            # Kalman
-            kf[current_object_id].predict(dt)
-            # print(
-            #     f'Kalman Filter Predictions: x:{kf[current_object_id].x_float}, y:{centeroid[1]}')
-            # print(f'Ground Truth: x:{centeroid[0]}, y:{centeroid[1]}')
+        print('\n\nStart of new Frame')
 
-            cv.circle(frame, (kf[current_object_id].x,
-                              centeroid[1]), 1, COLORS[current_object_id], 3)
+        # iterate over all the boxes detected
+        for index, box in enumerate(boxes):
 
-            kf[current_object_id].update(centeroid[0],  3)
+            # centroid of the current box
+            centeroid = np.array([box[0] + (box[2] // 2),
+                                  box[1] + (box[3]) // 2])
 
-        print(
-            f'Object {current_object_id} x when detected & updated: {kf[current_object_id].x}')
+            # check if centroid belong to existing object id else create new object id
+            next_object_id, objects, current_object_id = check_object(
+                centeroid, objects, next_object_id)
 
-        cv.rectangle(frame, box, OBJECT[current_object_id], 4)
-        cv.putText(frame, f'Object {current_object_id}', (box[0], box[1]-10),
-                   cv.FONT_HERSHEY_COMPLEX, 1, OBJECT[current_object_id], 1)
+            # detected object id
+            object_id_detected.append(current_object_id)
 
-    # print("########### No Objects Detected ###########")
-    # Kalman
-    for object_id, object_kf in kf.items():
+            # create a circle arounf the centroid
+            cv.circle(frame, centeroid, 3, OBJECT[current_object_id], 3)
 
-        if object_id not in object_id_detected:
+            # check if current_object_id belongs to existing object ids
+            if current_object_id not in kf.keys():
+                # current_object_id does not belong to existing object ids
 
-            object_kf.predict(dt)
+                # create new KalmanFilter instance
+                kf[current_object_id] = KalmanFilter(
+                    x=centeroid[0], u=10, std_acc=0.1, std_meas=0.1)
 
-            objects[object_id] = np.array([object_kf.x, centeroid[1]])
-            cv.circle(
-                frame, (object_kf.x, centeroid[1]), 1, COLORS[object_id], 3)
+                # draw circle arounf kalman filter prediction
+                cv.circle(frame, (kf[current_object_id].get_x,
+                                  centeroid[1]), 1, COLORS[current_object_id], 3)
 
-            print(f'Object {object_id} x when not detected: {object_kf.x}')
+            else:
+                # current_object_id belongs to existing object ids
 
-    print('End of Frame\n\n')
-    cv.imshow('frame', frame)
-    # video.write(frame)
+                # predict current x
+                kf[current_object_id].predict(dt)
 
-    key = cv.waitKey(1)
+                # draw circle arounf kalman filter prediction
+                cv.circle(frame, (kf[current_object_id].get_x,
+                                  centeroid[1]), 1, COLORS[current_object_id], 3)
 
-    if key == ord('q'):
-        break
+                # update kalman filter with ground truth
+                kf[current_object_id].update(centeroid[0])
 
-print(objects)
+            print(
+                f'Object {current_object_id} x when detected & updated: {kf[current_object_id].get_x}')
 
-cap.release()
+            # create rectangle around detected object
+            cv.rectangle(frame, box, OBJECT[current_object_id], 4)
+            # Put object id around object
+            cv.putText(frame, f'Object {current_object_id}', (box[0], box[1]-10),
+                       cv.FONT_HERSHEY_COMPLEX, 1, OBJECT[current_object_id], 1)
 
-cv.destroyAllWindows()
-# video.release()
+        # check if any object was not detected in current frame
+        for object_id, object_kf in kf.items():
+
+            if object_id not in object_id_detected:
+                # if any object was not detected in current frame
+
+                # predict current x
+                object_kf.predict(dt)
+
+                # update object centroid in objects dict
+                objects[object_id] = np.array([object_kf.get_x, centeroid[1]])
+
+                # # draw circle arounf kalman filter prediction
+                cv.circle(
+                    frame, (object_kf.get_x, centeroid[1]), 1, COLORS[object_id], 3)
+
+                print(
+                    f'Object {object_id} x when not detected: {object_kf.get_x}')
+
+        print('End of Frame\n\n')
+
+        # show frame
+        cv.imshow('frame', frame)
+
+        # write frame
+        video.write(frame)
+
+        key = cv.waitKey(4)
+
+        if key == ord('q'):
+            break
+
+    cap.release()
+    cv.destroyAllWindows()
+    video.release()

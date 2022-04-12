@@ -2,55 +2,83 @@ import numpy as np
 
 
 class KalmanFilter:
-    def __init__(self, initial_pos, initial_velocity, acceleration):
-        # self._id = id_number
-        self.invisibleCount = 0
-        self.X_t = np.array([initial_pos, initial_velocity])
-        self.P_t = np.eye(2) ** 2
-        self.H_t = np.zeros((1, 2))
-        self.H_t[0, 0] = 1
+    def __init__(self,
+                 x: int,
+                 u: int,
+                 std_acc: float,
+                 std_meas: float) -> None:
 
-        self.acceleration = acceleration
+        # initialize the model
 
-    def predict(self, dt):
-        # x = F x
-        # P = F P Ft + G Gt a
-        F = np.array([[1, dt], [0, 1]])
-        G = np.array([0.5 * dt**2, dt]).reshape((2, 1))
+        # control vector velocity
+        self.u = u
 
-        self.X_t = F.dot(self.X_t)
-        self.P_t = F.dot(self.P_t).dot(F.T) + G.dot(G.T) * self.acceleration
+        # acceleration standard deviation
+        self.std_acc = std_acc
 
-    def update(self, meas_value, meas_variance):
+        # observation model
+        self.H = np.matrix([[1, 0]])
 
-        Z_t = np.array([meas_value])
-        R_t = np.array([meas_variance])
+        # covariance of the observation noise
+        self.R = std_meas**2
 
-        y_t = Z_t - self.H_t.dot(self.X_t)
-        S_t = self.H_t.dot(self.P_t).dot(self.H_t.T) + R_t
+        # Predicted (a priori) estimate covariance
+        self.P = np.eye(2)
 
-        K = self.P_t.dot(self.H_t.T).dot(np.linalg.inv(S_t))
+        # Predicted (a priori) state estimate
+        self.x = np.matrix([[x], [u]])
 
-        self.X_t = self.X_t + K.dot(y_t)
-        self.P_t = (np.eye(2) - K.dot(self.H_t)).dot(self.P_t)
+    def predict(self, dt: float) -> None:
+        """predict the position of x
 
-    def inc_invisible_count(self):
-        self.invisibleCount += 1
+        Args:
+            dt (float): time between two frames
+        """
 
-    def default_invisible_count(self):
-        self.invisibleCount = 0
+        # the control-input model
+        B = np.matrix([[(dt**2)/2], [dt]])
 
-    def check_invisible_count(self):
-        return self.invisibleCount <= 3
+        # state-transition model
+        F = np.matrix([[1, dt],
+                       [0, 1]])
 
-    @property
-    def x(self) -> int:
-        return int(self.X_t[0])
+        # covariance of the process noise
+        Q = np.matrix([[(dt**4)/4, (dt**3)/2],
+                       [(dt**3)/2, dt**2]]) * self.std_acc**2
 
-    @property
-    def x_float(self) -> float:
-        return self.X_t[0]
+        # PREDICT
 
-    @property
-    def id(self) -> int:
-        return int(self._id)
+        self.x = np.dot(F, self.x) + np.dot(B, self.u)
+
+        self.P = np.dot(np.dot(F, self.P), F.T) + Q
+
+    def update(self, z: int) -> None:
+        """_summary_
+
+        Args:
+            z (int): true measurement (Ground Truth)
+        """
+
+        # Innovation or measurement pre-fit residual
+        y = self.H * z + np.random.normal(0, 3)
+        y = y.item(0)
+
+        # Innovation (or pre-fit residual) covariance
+        S = np.dot(self.H, np.dot(self.P, self.H.T)) + self.R
+
+        # Kalman gain
+        K = np.dot(np.dot(self.P, self.H.T), np.linalg.inv(S))
+
+        # UPDATE
+
+        # Updated(a posteriori) state estimate
+        self.x = np.round(
+            self.x + np.dot(K, (y - np.dot(self.H, self.x))))
+
+        # Updated (a posteriori) estimate covariance
+        I = np.eye(self.H.shape[1])
+        self.P = (I - (K * self.H)) * self.P
+
+    @ property
+    def get_x(self) -> int:
+        return int(self.x[0])
